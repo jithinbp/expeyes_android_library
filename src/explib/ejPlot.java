@@ -13,6 +13,9 @@
 package explib;
 
 import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
 import android.content.Context;
 import android.graphics.Canvas;
@@ -27,16 +30,20 @@ import android.view.View;
 import android.widget.LinearLayout;
 
 public class ejPlot{
+	private static final int LINE = 0;
+	private static final int BAR = 1;
+	
 	public View myv;
 	private int MAXCHAN=5;
-	Paint[] paints = new Paint[MAXCHAN];
+	public Paint[] paints = new Paint[MAXCHAN];
 	Path[]  paths = new Path[MAXCHAN]; 
 	Paint backgroundPaint = new Paint();
 	Paint borderPaint = new Paint();
 	Paint axesPaint = new Paint();
 	Paint gridPaint = new Paint();
 	Paint dashPaint = new Paint();
-
+	Paint annoPaint = new Paint();
+	
 	public  float XMIN = (float) 0.0, XMAX = (float) 100.0, YMIN = (float) -5.0, YMAX = (float) 5.0;// Limits, User program will set this
 	public	String xlabel = "milli Seconds";
 	public	String ylabel = "Volts";
@@ -49,6 +56,10 @@ public class ejPlot{
 	private int WIDTH, HEIGHT;
 	public CaptureConstants Par;
 	public boolean touched=false;
+	private DecimalFormat dfx=new DecimalFormat("#.##"),dfy=new DecimalFormat("#.##"),dfanno=new DecimalFormat("#.######");
+	public List<annotation> point_values = new ArrayList<annotation>();
+	
+	public int PATHTYPE=LINE;
 	public ejPlot(Context context,LinearLayout ll) {
 		for(int i=0;i<MAXCHAN;i++){
 			paints[i]= new Paint();
@@ -60,25 +71,52 @@ public class ejPlot{
 		setWorld(XMIN, XMAX, YMIN, YMAX);		
 	}
 	
-	
+	class annotation{
+		public float x,y;
+		public String val=new String();
+		annotation(float x,float y,String val){
+			this.x=x;
+			this.y=y;
+			this.val = val;
+		}
+	}
 	public void setWorld(double xmin, double xmax, double ymin, double ymax) {
 		XMIN = (float) xmin;
 		XMAX = (float) xmax;
 		YMIN = (float) ymin;
-		YMAX = (float) ymax;	
+		YMAX = (float) ymax;
+		YMAX = (float) (((YMAX-YMIN)==0)?(YMAX+0.01):YMAX);
 		xscale = (float) (WIDTH-LEFTBORDER-RTBORDER-4) / (XMAX - XMIN);		
 		yscale = (float) (HEIGHT-BOTBORDER-TOPBORDER-4)/ (YMAX - YMIN);
-		//Log.e("x y", "W=  " + WIDTH + " H= " +HEIGHT + " xs= " + xscale + "ys= " + yscale); 
+		//Log.e("x y", "W=  " + WIDTH + " H= " +HEIGHT + " xs= " + xscale + "ys= " + yscale);
+		
+		if(Math.abs(YMAX)>1000 || Math.abs(YMAX)<1)dfy.applyPattern("#.#E0");
+		else dfy.applyPattern("#.##");
+		
+		if(Math.abs(XMAX)>1000 || Math.abs(XMAX)<1)dfx.applyPattern("#.#E0");
+		else dfx.applyPattern("#.##");
+		
 	}
 
 	
 	public void line(float[] xa,float[] ya, int size, int channel){	
+		PATHTYPE=LINE;
 		paths[channel].reset();
 		paths[channel].moveTo((xa[0]-XMIN) * xscale + 2 + LEFTBORDER, HEIGHT - (ya[0]-YMIN) * yscale - BOTBORDER-1);
 		for (int i = 1; i < size; i++)
 			paths[channel].lineTo((xa[i]-XMIN) * xscale + 2+ LEFTBORDER, HEIGHT - (ya[i]-YMIN) * yscale - BOTBORDER-1);	
 		}
-
+	public void spikes(float[] xa,float[] ya, int size, int channel){
+		PATHTYPE=BAR;
+		paths[channel].reset();
+		point_values.clear();
+		for (int i = 0; i < size; i++){
+			paths[channel].moveTo((xa[i]-XMIN) * xscale + 2 + LEFTBORDER, HEIGHT - (ya[i]-YMIN) * yscale - BOTBORDER-1);
+			
+			paths[channel].lineTo((xa[i]-XMIN) * xscale + 2+ LEFTBORDER, HEIGHT - (YMIN) * yscale - BOTBORDER-1);
+			point_values.add(new annotation((xa[i]-XMIN) * xscale + 2+ LEFTBORDER,HEIGHT - (ya[i]-YMIN) * yscale - BOTBORDER-1,dfanno.format(ya[i])));
+			}
+		}
 	
 	public void updatePlots(){ 
 		myv.postInvalidate();
@@ -115,6 +153,13 @@ public class ejPlot{
 			axesPaint.setStyle(Paint.Style.STROKE);
 			axesPaint.setColor(Color.WHITE);
 			axesPaint.setTextAlign(Align.CENTER);
+			
+			annoPaint.setStrokeWidth(1);
+			annoPaint.setStyle(Paint.Style.STROKE);
+			annoPaint.setColor(Color.RED);
+			annoPaint.setTextAlign(Align.CENTER);
+			
+			
 			gridPaint.setStyle(Paint.Style.STROKE);
 			gridPaint.setStrokeWidth(0);
 			gridPaint.setColor(Color.GREEN);
@@ -145,7 +190,9 @@ public class ejPlot{
 			}
 		
 		private void drawAxes(Canvas canvas){
-			DecimalFormat df = new DecimalFormat("#.##");
+			
+
+			
 			float dx = (XMAX-XMIN)/NGRID; 
 			float dy = (YMAX-YMIN)/NGRID;
 			float ypos, xpos;
@@ -155,7 +202,7 @@ public class ejPlot{
 			
 			xpos = XMIN+dx;
 			while (xpos <= XMAX-0.5*dx) {
-				canvas.drawText(df.format(xpos), w2sX(xpos),  HEIGHT - BOTBORDER/2 - 3, axesPaint);
+				canvas.drawText(dfx.format(xpos), w2sX(xpos),  HEIGHT - BOTBORDER/2 - 3, axesPaint);
 				gpath.moveTo(w2sX(xpos), w2sY(YMIN));
 				gpath.lineTo(w2sX(xpos), w2sY(YMAX));
 				xpos += dx;
@@ -169,8 +216,8 @@ public class ejPlot{
 			axesPaint.setTextAlign(Align.RIGHT);
 			
 			ypos = YMIN+dy;
-			while (ypos <= YMAX-dy) {
-				canvas.drawText(df.format(ypos), w2sX(XMIN)-3,  w2sY((float) (ypos)), axesPaint);
+			while (ypos <= YMAX) {
+				canvas.drawText(dfy.format(ypos), w2sX(XMIN)-3,  w2sY((float) (ypos)), axesPaint);
 				gpath.moveTo(w2sX(XMIN), w2sY(ypos));
 				gpath.lineTo(w2sX(XMAX), w2sY(ypos));
 				ypos += dy;
@@ -188,7 +235,24 @@ public class ejPlot{
 			drawAxes(canvas);
 			for(int i=0;i<MAXCHAN;i++)
 					canvas.drawPath(paths[i], paints[i]);
-			
+			if(PATHTYPE==BAR){
+				Iterator<annotation> iter = point_values.iterator();
+				Log.e("ITER","READY");
+				annoPaint.setTextAlign(Align.LEFT);
+				
+				
+				while(iter.hasNext()){
+					annotation tmp=iter.next();
+					Log.e("ITER",tmp.val);
+					canvas.save();
+					canvas.rotate(-70, tmp.x, tmp.y);
+					canvas.drawText(tmp.val,tmp.x-2,tmp.y, annoPaint);	
+					canvas.restore();
+				}
+				
+				
+			}
+				
 
 		}
 		

@@ -86,13 +86,13 @@ public class ejlib {
 	 
 	 // Responses from the device
 	 public byte SUCCESS 		= (byte)'D';			// Command executed successfully 
-	 private byte WAITING 		= (byte)'W';			// Command under processing, for threaded version 
-	 private byte INVCMD		= (byte)'C';			// Invalid Command
-	 private byte INVARG		= (byte)'A';			// Invalid input data
-	 private byte INVBUFSIZE	= (byte)'B';			// Resulting data exceeds buffer size
-	 private byte TIMEOUT		= (byte)'T';			// Time measurement timed out
-	 private byte COMERR		= (byte)'S';			// Serial Communication error
-	 private byte INVSIZE		= (byte)'Z';			// Size mismatch, result of capture
+	 public byte WAITING 		= (byte)'W';			// Command under processing, for threaded version 
+	 public byte INVCMD		= (byte)'C';			// Invalid Command
+	 public byte INVARG		= (byte)'A';			// Invalid input data
+	 public byte INVBUFSIZE	= (byte)'B';			// Resulting data exceeds buffer size
+	 public byte TIMEOUT		= (byte)'T';			// Time measurement timed out
+	 public byte COMERR		= (byte)'S';			// Serial Communication error
+	 public byte INVSIZE		= (byte)'Z';			// Size mismatch, result of capture
 	 
 	 
 	 public devhandler mcp2200;
@@ -106,7 +106,7 @@ public class ejlib {
 	 public boolean connected = false, messageUpdated=false;
 	 public int commandStatus = 0;
 	 public String message = new String();
-	 private int k,nb;
+	 private int k,nb,nb2;
 	 
 	 
 	 /*----------Constructor routine.  Also initialises calibration data---------*/
@@ -131,31 +131,33 @@ public class ejlib {
 	 /*---------------Opens the assigns device, sets BAUDRATE, and checks the version--------*/
 	 public boolean open(){
 		 try {
-			 
+			
+			 setMessage("Trying to connect to MCP2200...");
 			mcp2200.open();
 			SystemClock.sleep(200);
 			mcp2200.setBaud(115200);
-			SystemClock.sleep(400);
+			SystemClock.sleep(1000);
 			Log.d(TAG,"opened device");
+			setMessage("Trying to connect...");
 			mcp2200.clear();
 			connected = true;  // if you get this far, assume you've connected. 
-			message = new String("Connected to mcp2200");
+			message = new String("Fetching version..");
 			
 			version = get_version();
 			if(version.substring(0,2).equals("ej")){
 				connected = true;
-				setMessage("Connected to device");
+				setMessage("Connected to device:"+version);
 				return true;
 			}
 			else{
 				connected=false;
-				setMessage("Received wrong version");
+				setMessage("Received wrong version:"+version);
 				return false;
 			}
 			
 		 } catch (IOException e) {
 			 connected = false;
-			 Log.e(TAG,"FAILED TO OPEN DEVICE. CHECK CONNECTIONS.");
+			 Log.e(TAG,"FAILED TO OPEN MCP2200 DEVICE. CHECK CONNECTIONS.");
 			setMessage("Failed to connect to device");
 
 		 }		 
@@ -740,11 +742,7 @@ public class ejlib {
 		if (systemBusy())return;
 
 		if(cmd == MULTIR2R) {
-			if(src > 7) {
-				commandStatus =  INVARG;
-				return;
-				}
-			if(dst > 249) {
+			if((src > 7) || (dst > 249)) {
 				commandStatus =  INVARG;
 				return;
 				}
@@ -769,23 +767,42 @@ public class ejlib {
 					}
 			}
 		try {
+			long st = System.currentTimeMillis();
+			byte[] temp = new byte[10];
 			sendByte(cmd);	
 			sendByte(src);	
-			sendByte(dst);	
-			nb = mcp2200.read(buffer,6, timeout+3000); 	// 1 + 1 + 4 bytes. Calls can timeout , 3 seconds to wait 
-			Log.e(TAG, "TIME HELPER:" + commandStatus);
+			sendByte(dst);
+			nb=mcp2200.read(buffer,1, 3500);  //Expeyes timers - 3 second timeout
+			
+			//Log.e("B1","BYTES: "+nb+" , "+buffer);
+			ejdata.ddata = -1;				// indicates error.
+			
 			if (buffer[0] == TIMEOUT) {             //  
 				commandStatus =  buffer[0];
-				ejdata.ddata = -1;				// indicates timeout error
+				//Log.e(TAG, "TIME HELPER:TIMEOUT "+(System.currentTimeMillis()-st));
 				return;
 				}		
+			
+			if (buffer[0] == SUCCESS) {             //  
+				nb2 = mcp2200.read(temp,6-nb, timeout); 	// 1 + 4 bytes.  
+				
+				if(nb+nb2!=6){commandStatus =  INVSIZE;return;}
+				
+				for(int i=0;i<nb2;i++)buffer[nb+i]=temp[i];
+				commandStatus =  SUCCESS;
+				//Log.e(TAG, "TIME HELPER:SUCCESS");
+				}		
+			
+			
 			if (buffer[0] != SUCCESS) {             //  
 				commandStatus =  buffer[0];
+				//Log.e(TAG, "TIME HELPER:"+commandStatus);
 				return;
 				}		
-			if(nb != 6) {
-				Log.e(TAG, "TIME HELPER: Expected 6 bytes. Got " + nb + " only\n");
+			if(nb+nb2 != 6) {
+				//Log.e(TAG, "TIME HELPER: Expected 6 bytes. Got " + (nb+nb2) + " only\n");
 				commandStatus =  INVSIZE;
+				//Log.e(TAG, "TIME HELPER:INVALID SIZE");
 				return;
 				}
 			}catch (IOException e) {
@@ -794,6 +811,7 @@ public class ejlib {
 		//float f = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN).getFloat();
 		ejdata.ddata = 
 				0.125 * ( ( buffer[2] & 0xff) | ((buffer[3] & 0xff) << 8) | ((buffer[4] & 0xff) << 16) |  ((buffer[5] & 0xff) << 24) );
+		
 		commandStatus =  SUCCESS;
 		}
 	
